@@ -1,1 +1,122 @@
+#!/bin/bash
 
+WGCONFPATH="/etc/wireguard"
+WGKEYSPATH="$WGCONFPATH/keys"
+WGUSERCONFPATH="$WGCONFPATH/userconf"
+WGCONF="wg0.conf"
+lastipfile="$WGCONFPATH/lastip"
+DATE=`date +%Y%m%d`
+PREFIXIP='10.7.0.'
+MASKIP="32"
+DNS="8.8.8.8"
+SERVERIP="111.111.222.222"
+SERVERPORT="11111"
+
+#flush variable
+username=''
+
+usage() {
+  printf '\nUsage: %s: [-u] username\n' $0; exit
+}
+
+check_user_exist() {
+
+FILE=$WGKEYSPATH/"$username"_private_key
+if [ -f "$FILE" ]; then
+    echo "User exist, please choose a new user name!"
+    exit
+else 
+    echo "Creating new user!"
+fi
+}
+
+check_lastip_exist() {
+FILE=$WGCONFSPATH/lastip
+if [ -f "$FILE" ]; then
+    echo "Lastip file exist, going on!"
+else 
+    echo "Creating new Lastip file and adding first user IP there!"
+    #adding 2, cause 1 is used by server
+    echo "2" > $WGCONFSPATH/lastip
+fi
+}
+
+check_create_folders() {
+
+FOLDER=$WGCONFSPATH/userconf
+if [ -d "$FOLDER" ]; then
+    echo "Userconf folder exists, going on!"
+else 
+    echo "Creating userconf folder!"
+    mkdir $WGCONFSPATH/userconf
+fi
+}
+
+#Check if there was no user input
+if [ $# -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+while getopts 'u:' flag; do
+  case "${flag}" in
+     u) username=${OPTARG} ;;
+  esac
+done
+
+echo $username
+
+check_user_exist
+
+##generating keys for user
+wg genkey | tee $WGKEYSPATH/"$username"_private_key | wg pubkey > $WGKEYSPATH/"$username"_public_key
+
+userpubkey=`cat $WGKEYSPATH/"$username"_public_key`
+userprivkey=`cat $WGKEYSPATH/"$username"_private_key`
+
+#get current ip
+#checking if file exist, if none writing a new one with first ip
+check_lastip_exist
+
+ip=$(cat "$lastipfile")
+#calculating next ip
+newip=$((ip+1))
+#writing new ip to file
+echo $newip > "$WGCONFPATH/lastip"
+
+printf ' public key:'
+echo $userpubkey
+printf ' private key:'
+echo $userprivkey
+
+#Adding keys to Wireguard config
+
+echo ' ' >> $WGCONFPATH/$WGCONF
+echo "[Peer]" >> $WGCONFPATH/$WGCONF
+echo "#$DATE" >> $WGCONFPATH/$WGCONF
+echo "#$username" >> $WGCONFPATH/$WGCONF
+echo "PublicKey = $userpubkey" >> $WGCONFPATH/$WGCONF
+echo "AllowedIPs = $PREFIXIP$newip/$MASKIP" >> $WGCONFPATH/$WGCONF
+echo ' ' >> $WGCONFPATH/$WGCONF
+
+echo "ip = $PREFIXIP$newip/$MASKIP"
+
+#Creating users conf file!
+#getting server public key
+servpubkey=$(cat "$WGKEYSPATH/server_public_key")
+
+check_create_folders
+
+echo "[Interface]" >> $WGUSERCONFPATH/$username.conf
+echo "Address = $PREFIXIP$newip/$MASKIP" >> $WGUSERCONFPATH/$username.conf
+echo "PrivateKey = $userprivkey" >> $WGUSERCONFPATH/$username.conf
+echo "DNS = $DNS" >> $WGUSERCONFPATH/$username.conf
+echo "" >> $WGUSERCONFPATH/$username.conf
+echo "[Peer]" >> $WGUSERCONFPATH/$username.conf
+echo "PublicKey = $servpubkey" >> $WGUSERCONFPATH/$username.conf
+echo "AllowedIPs = 0.0.0.0/0" >> $WGUSERCONFPATH/$username.conf
+echo "Endpoint = $SERVERIP:$SERVERPORT" >> $WGUSERCONFPATH/$username.conf
+echo "PersistentKeepalive = 20" >> $WGUSERCONFPATH/$username.conf
+
+#restart Wireguard service for config renewal
+systemctl restart wg-quick@wg0
