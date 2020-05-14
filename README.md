@@ -13,3 +13,5 @@ File /etc/wireguard/lastip uses for setting newuser ip.
 File /etc/wireguard/wg0.conf - WireGuard daemon config
 
 usage: ./useradd -u username
+
+After adding new user script restarts wireguard daemon wg-quick@wg0.
