@@ -1,4 +1,4 @@
-Script for adding userguard users
+Script is for adding userguard users
 
 Creates folders and files for configuring new users.
 
